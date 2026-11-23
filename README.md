@@ -42,7 +42,10 @@ flowchart TD
     E --> F3["Export: SVG & 3D Extrusion Preview"]
 ```
 
-Chi tiết tài liệu kiến trúc kỹ thuật xem tại: [docs/ARCHITECTURE_AND_PLAN.md](docs/ARCHITECTURE_AND_PLAN.md)
+Chi tiết tài liệu kiến trúc kỹ thuật xem tại: 
+- [docs/ARCHITECTURE_AND_PLAN.md](docs/ARCHITECTURE_AND_PLAN.md) - Kế hoạch triển khai & kiến trúc hệ thống 5 giai đoạn
+- [docs/AI_MODEL_EVALUATION.md](docs/AI_MODEL_EVALUATION.md) - Đánh giá chi tiết & ma trận lựa chọn mô hình AI (Gemini, Claude, GPT, Qwen, SAM 2, YOLO)
+- [docs/DATA_SCHEMA.md](docs/DATA_SCHEMA.md) - Đặc tả chuẩn dữ liệu trung gian (JSON Schema)
 
 ---
 
