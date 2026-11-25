@@ -7,7 +7,6 @@ import {
   FolderKanban,
   Layers,
   Loader2,
-  Play,
   Ruler,
   Sparkles,
   Square,
@@ -76,27 +75,6 @@ export function App() {
       await refreshProjects()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi xử lý PDF')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleRunSample = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/analyze-sample?use_llm=${useLlm}`, {
-        method: 'POST',
-      })
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}))
-        throw new Error(errBody.detail || `HTTP ${res.status}`)
-      }
-      const data: AnalyzeResponse = await res.json()
-      openResult(data)
-      await refreshProjects()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không thể chạy file mẫu')
     } finally {
       setLoading(false)
     }
@@ -222,16 +200,6 @@ export function App() {
             Gemini Vision
           </label>
 
-          <button
-            type="button"
-            onClick={handleRunSample}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            <Play className="h-3.5 w-3.5 text-emerald-600" />
-            Test mẫu
-          </button>
-
           <label className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-sky-500">
             <FileUp className="h-3.5 w-3.5" />
             Upload PDF
@@ -302,11 +270,9 @@ export function App() {
           <div className="min-w-0 flex-1">
             <ProjectDashboard
               projects={projects}
-              loading={loading}
               useLlm={useLlm}
               onToggleLlm={setUseLlm}
               onUploadPdf={handleUpload}
-              onRunSample={handleRunSample}
               onOpenProject={handleOpenProject}
               onRenameProject={handleRenameProject}
               onDeleteProject={handleDeleteProject}

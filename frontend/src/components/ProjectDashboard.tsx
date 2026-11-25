@@ -7,7 +7,6 @@ import {
   FolderOpen,
   Layers,
   Pencil,
-  Play,
   Search,
   Sparkles,
   Trash2,
@@ -17,11 +16,9 @@ import type { ProjectSummary } from '../types/cad'
 
 interface ProjectDashboardProps {
   projects: ProjectSummary[]
-  loading: boolean
   useLlm: boolean
   onToggleLlm: (val: boolean) => void
   onUploadPdf: (file: File) => void
-  onRunSample: () => void
   onOpenProject: (projectId: string) => void
   onRenameProject: (projectId: string, name: string) => Promise<void>
   onDeleteProject: (projectId: string) => Promise<void>
@@ -31,11 +28,9 @@ type SortKey = 'newest' | 'area' | 'name'
 
 export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
   projects,
-  loading,
   useLlm,
   onToggleLlm,
   onUploadPdf,
-  onRunSample,
   onOpenProject,
   onRenameProject,
   onDeleteProject,
@@ -130,16 +125,6 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
               Gemini Vision
             </label>
 
-            <button
-              type="button"
-              onClick={onRunSample}
-              disabled={loading}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-            >
-              <Play className="h-3.5 w-3.5 text-emerald-600" />
-              Test mẫu (test1.pdf)
-            </button>
-
             <label className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-sky-500">
               <FileUp className="h-3.5 w-3.5" />
               Chọn file PDF
@@ -216,7 +201,7 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                 : 'Không tìm thấy dự án phù hợp'}
             </p>
             <p className="mt-1 text-xs text-slate-400">
-              Hãy upload file PDF mặt bằng hoặc bấm &quot;Test mẫu (test1.pdf)&quot; để bắt đầu.
+              Hãy kéo thả hoặc chọn file PDF mặt bằng để bắt đầu dự án mới.
             </p>
           </div>
         ) : (
