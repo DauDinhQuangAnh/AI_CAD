@@ -34,6 +34,10 @@ wheels/
 *.swp
 *.swo
 
+# Testing & Node
+.pytest_cache/
+node_modules/
+
 # Output & Temporary Data
 data/outputs/*
 !data/outputs/.gitkeep
