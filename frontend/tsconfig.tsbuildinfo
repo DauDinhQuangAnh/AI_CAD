@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/floorplan2d.tsx","./src/components/floorplan3d.tsx","./src/components/projectdashboard.tsx","./src/types/cad.ts"],"version":"5.9.3"}
