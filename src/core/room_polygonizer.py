@@ -136,13 +136,9 @@ class RoomPolygonizer:
     def _bridge_openings(
         corners: list[Corner],
         walls: list[Wall],
-        max_gap_mm: float = 2600.0,
+        max_gap_mm: float = 1500.0,
     ) -> list[LineString]:
-        """Create virtual closure segments across door/window gaps.
-
-        Prioritizes extending each dangling endpoint along its own wall direction
-        so doorways/windows close straight across rather than cutting diagonally.
-        """
+        """Create virtual closure segments across door/window gaps without slicing rooms."""
         adj: dict[str, list[Wall]] = {c.id: [] for c in corners}
         for w in walls:
             adj.setdefault(w.corner_start_id, []).append(w)
@@ -160,8 +156,96 @@ class RoomPolygonizer:
         closures: list[LineString] = []
         used: set[str] = set()
 
-        # Pass 1: Extend dangling endpoint along its own wall outward direction
+        # Pass 1: Close small junction offsets (<= 220 mm) to non-adjacent walls
         for c in dangling:
+            w = adj[c.id][0]
+            other_id = w.corner_end_id if w.corner_start_id == c.id else w.corner_start_id
+            best_pt: Optional[tuple[float, float]] = None
+            best_d = 220.0
+            pt = Point(c.x, c.y)
+            for tw in walls:
+                if (
+                    tw.id == w.id
+                    or tw.corner_start_id == c.id
+                    or tw.corner_end_id == c.id
+                    or tw.corner_start_id == other_id
+                    or tw.corner_end_id == other_id
+                ):
+                    continue
+                a, b = corner_map[tw.corner_start_id], corner_map[tw.corner_end_id]
+                seg = LineString([(a.x, a.y), (b.x, b.y)])
+                d = seg.distance(pt)
+                if 20.0 <= d < best_d:
+                    best_d = d
+                    proj = seg.interpolate(seg.project(pt))
+                    best_pt = (proj.x, proj.y)
+            if best_pt is not None:
+                closures.append(LineString([(c.x, c.y), best_pt]))
+                used.add(c.id)
+
+        # Pass 2: Connect collinear dangling endpoints across doors/windows (<= max_gap_mm)
+        for i in range(len(dangling)):
+            c1 = dangling[i]
+            if c1.id in used:
+                continue
+            w1 = adj[c1.id][0]
+            o1_id = w1.corner_end_id if w1.corner_start_id == c1.id else w1.corner_start_id
+            o1 = corner_map.get(o1_id)
+            if not o1:
+                continue
+            dx1, dy1 = c1.x - o1.x, c1.y - o1.y
+            l1 = math.hypot(dx1, dy1)
+            if l1 < 1e-6:
+                continue
+            ox1, oy1 = dx1 / l1, dy1 / l1
+
+            best_j: Optional[Corner] = None
+            best_dist = max_gap_mm
+            for j in range(len(dangling)):
+                if i == j:
+                    continue
+                c2 = dangling[j]
+                if c2.id in used:
+                    continue
+                vx, vy = c2.x - c1.x, c2.y - c1.y
+                dist = math.hypot(vx, vy)
+                if 20.0 <= dist <= best_dist:
+                    proj = vx * ox1 + vy * oy1
+                    perp = abs(vx * (-oy1) + vy * ox1)
+                    if proj > 0 and perp <= 150.0:
+                        best_dist = dist
+                        best_j = c2
+            if best_j is not None:
+                closures.append(LineString([(c1.x, c1.y), (best_j.x, best_j.y)]))
+                used.add(c1.id)
+                used.add(best_j.id)
+
+        # Pass 3: Connect dangling endpoint to an axis-aligned corner across a doorway (<= 1300 mm)
+        for c in dangling:
+            if c.id in used:
+                continue
+            w = adj[c.id][0]
+            other_id = w.corner_end_id if w.corner_start_id == c.id else w.corner_start_id
+            best_c2: Optional[Corner] = None
+            best_d = 1300.0
+            for c2 in corners:
+                if c2.id == c.id or c2.id == other_id:
+                    continue
+                dx = abs(c2.x - c.x)
+                dy = abs(c2.y - c.y)
+                if (dx <= 100.0 and 200.0 <= dy < best_d) or (dy <= 100.0 and 200.0 <= dx < best_d):
+                    dist = math.hypot(dx, dy)
+                    if dist < best_d:
+                        best_d = dist
+                        best_c2 = c2
+            if best_c2 is not None:
+                closures.append(LineString([(c.x, c.y), (best_c2.x, best_c2.y)]))
+                used.add(c.id)
+
+        # Pass 4: Short raycast along wall direction (<= 1350 mm) for T-junction doorways
+        for c in dangling:
+            if c.id in used:
+                continue
             w = adj[c.id][0]
             other_id = w.corner_end_id if w.corner_start_id == c.id else w.corner_start_id
             other = corner_map.get(other_id)
@@ -171,12 +255,10 @@ class RoomPolygonizer:
             wlen = math.hypot(dx, dy)
             if wlen < 1e-6:
                 continue
-            ox, oy = dx / wlen, dy / wlen  # Outward unit vector
+            ox, oy = dx / wlen, dy / wlen
 
-            best_t = max_gap_mm + 1.0
+            best_t = 1350.0
             best_hit: Optional[tuple[float, float]] = None
-
-            # Raycast against all other walls
             for tw in walls:
                 if tw.id == w.id:
                     continue
@@ -188,29 +270,15 @@ class RoomPolygonizer:
                 rx, ry = a.x - c.x, a.y - c.y
                 t = (rx * qdy - ry * qdx) / denom
                 u = (rx * oy - ry * ox) / denom
-                if 20.0 <= t <= max_gap_mm and -0.05 <= u <= 1.05:
-                    if t < best_t:
-                        best_t = t
-                        best_hit = (c.x + t * ox, c.y + t * oy)
-
-            # Also check collinear dangling endpoints directly ahead
-            for c2 in dangling:
-                if c2.id == c.id:
-                    continue
-                vx, vy = c2.x - c.x, c2.y - c.y
-                dist = math.hypot(vx, vy)
-                if 20.0 <= dist <= max_gap_mm:
-                    proj = vx * ox + vy * oy
-                    perp = abs(vx * (-oy) + vy * ox)
-                    if proj > 0 and perp <= 120.0 and dist < best_t:
-                        best_t = dist
-                        best_hit = (c2.x, c2.y)
+                if 20.0 <= t <= best_t and -0.05 <= u <= 1.05:
+                    best_t = t
+                    best_hit = (c.x + t * ox, c.y + t * oy)
 
             if best_hit is not None:
                 closures.append(LineString([(c.x, c.y), best_hit]))
                 used.add(c.id)
 
-        # Pass 2: Fallback nearest-pair for any remaining dangling endpoints (e.g. corner windows)
+        # Pass 4: Connect remaining nearby dangling pairs (<= max_gap_mm)
         remaining = [c for c in dangling if c.id not in used]
         pairs: list[tuple[float, Corner, Corner]] = []
         for i in range(len(remaining)):

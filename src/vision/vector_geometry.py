@@ -388,7 +388,7 @@ class VectorGeometryParser:
                 d1 = self._point_to_seg_dist(x1, y1, w.start.x, w.start.y, w.end.x, w.end.y)
                 d2 = self._point_to_seg_dist(x2, y2, w.start.x, w.start.y, w.end.x, w.end.y)
                 min_d = min(d1, d2)
-                if min_d <= w.thickness_mm + 40.0:
+                if min_d <= w.thickness_mm + 50.0:
                     # Hinge is the endpoint closer to the wall; swing tip is the other endpoint
                     if d1 <= d2:
                         hinge, tip = Point2D(x=x1, y=y1), (x2, y2)
@@ -397,7 +397,7 @@ class VectorGeometryParser:
 
                     # Swing arc MUST touch the leaf tip (not just anywhere near the wall)
                     has_tip_arc = any(
-                        math.hypot(ax - tip[0], ay - tip[1]) <= 140.0
+                        math.hypot(ax - tip[0], ay - tip[1]) <= 160.0
                         for ax, ay in arc_pts
                     )
                     if not has_tip_arc:
