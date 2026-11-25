@@ -335,11 +335,20 @@ class VectorGeometryParser:
             for j in range(i + 1, n):
                 wj = walls[j]
                 pts_j = ((wj.start.x, wj.start.y), (wj.end.x, wj.end.y))
-                if any(
-                    math.hypot(ax - bx, ay - by) <= connect_tol_mm
+                connected = any(
+                    VectorGeometryParser._point_to_seg_dist(
+                        ax, ay, wj.start.x, wj.start.y, wj.end.x, wj.end.y
+                    )
+                    <= connect_tol_mm
                     for ax, ay in pts_i
+                ) or any(
+                    VectorGeometryParser._point_to_seg_dist(
+                        bx, by, wi.start.x, wi.start.y, wi.end.x, wi.end.y
+                    )
+                    <= connect_tol_mm
                     for bx, by in pts_j
-                ):
+                )
+                if connected:
                     adj[i].append(j)
                     adj[j].append(i)
 

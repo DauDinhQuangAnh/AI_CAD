@@ -262,14 +262,17 @@ export const FloorPlan3D: React.FC<FloorPlan3DProps> = ({ floor }) => {
     const applyPreset = (p: CameraPreset) => {
       const prevDamp = controls.enableDamping
       controls.enableDamping = false
+      // Compensate for narrow Split-view panes (aspect < 1) so horizontal edges never clip
+      const aspectScale = Math.max(1.0, 1.05 / Math.max(0.45, camera.aspect))
+      const dist = maxSpan * aspectScale
       if (p === 'top') {
-        camera.position.set(0, maxSpan * 1.9, 0.01)
+        camera.position.set(0, dist * 1.9, 0.01)
         controls.target.set(0, 0, 0)
       } else if (p === 'front') {
-        camera.position.set(0, maxSpan * 0.55, maxSpan * 1.8)
+        camera.position.set(0, dist * 0.55, dist * 1.8)
         controls.target.set(0, 1.0, 0)
       } else {
-        camera.position.set(maxSpan * 0.85, maxSpan * 1.5, maxSpan * 1.5)
+        camera.position.set(dist * 0.85, dist * 1.5, dist * 1.5)
         controls.target.set(0, 0.8, 0)
       }
       controls.update()
@@ -344,6 +347,7 @@ export const FloorPlan3D: React.FC<FloorPlan3DProps> = ({ floor }) => {
           camera.aspect = nw / nh
           camera.updateProjectionMatrix()
           renderer.setSize(nw, nh)
+          applyPreset(preset)
         }
       })
     })
