@@ -70,7 +70,7 @@ class VectorGeometryParser:
 
         # Scale primary structural segments to millimeters
         scaled_struct: list[tuple[float, float, float, float, bool]] = []
-        scaled_all: list[tuple[float, float, float, float, float]] = []
+        scaled_all: list[tuple[float, float, float, float, float, bool]] = []
 
         for seg in segments_pt:
             x1, y1 = seg.x1 * mm_per_pt, seg.y1 * mm_per_pt
@@ -78,8 +78,8 @@ class VectorGeometryParser:
             length_mm = math.hypot(x2 - x1, y2 - y1)
             if length_mm < 15.0:
                 continue
-            scaled_all.append((x1, y1, x2, y2, seg.width))
-            if seg.is_primary_structure:
+            scaled_all.append((x1, y1, x2, y2, seg.width, seg.is_curve))
+            if seg.is_primary_structure and not seg.is_curve:
                 is_red = seg.color[0] > 0.7 and seg.color[1] < 0.25
                 scaled_struct.append((x1, y1, x2, y2, is_red))
 
@@ -319,25 +319,62 @@ class VectorGeometryParser:
 
     def _detect_openings(
         self,
-        scaled_all: list[tuple[float, float, float, float, float]],
+        scaled_all: list[tuple[float, float, float, float, float, bool]],
         walls: list[RawWallSegment],
     ) -> list[RawOpeningCandidate]:
-        """Detect swing doors / windows near walls (heuristic chord & thin-line detection)."""
-        # Look for thin (width < 0.4) segments of typical door-leaf length (650-1150 mm)
-        # that touch or lie close to a wall centerline at a ~45-90 deg angle.
+        """Detect swing doors strictly by pairing a door leaf with a curved or polyline swing arc."""
+        arc_pts: list[tuple[float, float]] = []
+        short_segs: list[tuple[float, float, float, float, float]] = []
+        for x1, y1, x2, y2, _, is_curve in scaled_all:
+            if is_curve:
+                arc_pts.append((x1, y1))
+                arc_pts.append((x2, y2))
+            else:
+                ln = math.hypot(x2 - x1, y2 - y1)
+                if 30.0 <= ln <= 280.0:
+                    short_segs.append((x1, y1, x2, y2, ln))
+
+        # Detect polyline-approximated arcs: short segments meeting at 4..40 deg turns
+        for i in range(len(short_segs)):
+            x1, y1, x2, y2, l1 = short_segs[i]
+            ux1, uy1 = (x2 - x1) / l1, (y2 - y1) / l1
+            for j in range(i + 1, len(short_segs)):
+                ax1, ay1, ax2, ay2, l2 = short_segs[j]
+                if abs(l1 - l2) > 60.0:
+                    continue
+                # Check if they share an endpoint within 15 mm
+                shared = (
+                    math.hypot(x2 - ax1, y2 - ay1) <= 15.0
+                    or math.hypot(x1 - ax2, y1 - ay2) <= 15.0
+                    or math.hypot(x2 - ax2, y2 - ay2) <= 15.0
+                    or math.hypot(x1 - ax1, y1 - ay1) <= 15.0
+                )
+                if not shared:
+                    continue
+                ux2, uy2 = (ax2 - ax1) / l2, (ay2 - ay1) / l2
+                dot = max(-1.0, min(1.0, abs(ux1 * ux2 + uy1 * uy2)))
+                turn = math.degrees(math.acos(dot))
+                if 4.0 <= turn <= 40.0:
+                    arc_pts.append((x1, y1))
+                    arc_pts.append((x2, y2))
+
+        if not arc_pts:
+            return []
+
         openings: list[RawOpeningCandidate] = []
         used_centers: list[Point2D] = []
 
-        for x1, y1, x2, y2, width in scaled_all:
-            if width >= 0.45:
+        for x1, y1, x2, y2, width, is_curve in scaled_all:
+            if is_curve or width >= 0.45:
                 continue
             length = math.hypot(x2 - x1, y2 - y1)
             if not (650.0 <= length <= 1150.0):
                 continue
 
-            # Check if one endpoint is close to any wall centerline and angle is >= 35 deg
             dx, dy = (x2 - x1) / length, (y2 - y1) / length
             for w in walls:
+                if w.length_mm < 800.0:
+                    continue
                 wdx = w.end.x - w.start.x
                 wdy = w.end.y - w.start.y
                 wlen = math.hypot(wdx, wdy)
@@ -345,16 +382,28 @@ class VectorGeometryParser:
                     continue
                 wux, wuy = wdx / wlen, wdy / wlen
                 dot = abs(dx * wux + dy * wuy)
-                if dot > 0.35:  # Must be roughly perpendicular/angled to wall, not parallel
+                if dot > 0.35:
                     continue
 
                 d1 = self._point_to_seg_dist(x1, y1, w.start.x, w.start.y, w.end.x, w.end.y)
                 d2 = self._point_to_seg_dist(x2, y2, w.start.x, w.start.y, w.end.x, w.end.y)
                 min_d = min(d1, d2)
-                if min_d <= w.thickness_mm + 80.0:
-                    hinge = Point2D(x=x1, y=y1) if d1 <= d2 else Point2D(x=x2, y=y2)
-                    # Project hinge + half door width along wall
-                    if any(math.hypot(hinge.x - u.x, hinge.y - u.y) < 350.0 for u in used_centers):
+                if min_d <= w.thickness_mm + 40.0:
+                    # Hinge is the endpoint closer to the wall; swing tip is the other endpoint
+                    if d1 <= d2:
+                        hinge, tip = Point2D(x=x1, y=y1), (x2, y2)
+                    else:
+                        hinge, tip = Point2D(x=x2, y=y2), (x1, y1)
+
+                    # Swing arc MUST touch the leaf tip (not just anywhere near the wall)
+                    has_tip_arc = any(
+                        math.hypot(ax - tip[0], ay - tip[1]) <= 140.0
+                        for ax, ay in arc_pts
+                    )
+                    if not has_tip_arc:
+                        continue
+
+                    if any(math.hypot(hinge.x - u.x, hinge.y - u.y) < 400.0 for u in used_centers):
                         break
                     used_centers.append(hinge)
                     openings.append(

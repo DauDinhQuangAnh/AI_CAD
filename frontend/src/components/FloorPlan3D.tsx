@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { Corner, FloorPlan, Wall } from '../types/cad'
+import type { Corner, FloorPlan, Opening } from '../types/cad'
 
 interface FloorPlan3DProps {
   floor: FloorPlan
@@ -78,8 +78,13 @@ export const FloorPlan3D: React.FC<FloorPlan3DProps> = ({ floor }) => {
     const cornerMap = new Map<string, Corner>()
     for (const c of floor.corners) cornerMap.set(c.id, c)
 
-    const wallMap = new Map<string, Wall>()
-    for (const w of floor.walls) wallMap.set(w.id, w)
+    // Group openings by host wall ID
+    const openingsByWall = new Map<string, Opening[]>()
+    for (const op of floor.openings) {
+      const list = openingsByWall.get(op.wall_id) || []
+      list.push(op)
+      openingsByWall.set(op.wall_id, list)
+    }
 
     // 1. Room floor slabs
     if (showSlabs) {
@@ -111,33 +116,9 @@ export const FloorPlan3D: React.FC<FloorPlan3DProps> = ({ floor }) => {
       }
     }
 
-    // 2. Walls
+    // 2. Walls (split around openings) + 3. Interactive Hinged Doors
     const extMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.7 })
     const intMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.8 })
-
-    for (const w of floor.walls) {
-      const c1 = cornerMap.get(w.corner_start_id)
-      const c2 = cornerMap.get(w.corner_end_id)
-      if (!c1 || !c2) continue
-
-      const x1 = c1.x / 1000 - cx
-      const z1 = -(c1.y / 1000 - cz)
-      const x2 = c2.x / 1000 - cx
-      const z2 = -(c2.y / 1000 - cz)
-
-      const len = Math.hypot(x2 - x1, z2 - z1)
-      if (len < 0.05) continue
-
-      const thk = Math.max(0.08, w.thickness / 1000)
-      const h = (w.height || 2800) / 1000
-      const geo = new THREE.BoxGeometry(len, h, thk)
-      const mesh = new THREE.Mesh(geo, w.wall_type === 'exterior' ? extMat : intMat)
-      mesh.position.set((x1 + x2) / 2, h / 2, (z1 + z2) / 2)
-      mesh.rotation.y = -Math.atan2(z2 - z1, x2 - x1)
-      scene.add(mesh)
-    }
-
-    // 3. Interactive Hinged Doors & Windows
     const winMat = new THREE.MeshStandardMaterial({
       color: 0x0284c7,
       roughness: 0.3,
@@ -154,9 +135,7 @@ export const FloorPlan3D: React.FC<FloorPlan3DProps> = ({ floor }) => {
     const clickableMeshes: THREE.Object3D[] = []
     const doorControls: DoorControl[] = []
 
-    for (const op of floor.openings) {
-      const w = wallMap.get(op.wall_id)
-      if (!w) continue
+    for (const w of floor.walls) {
       const c1 = cornerMap.get(w.corner_start_id)
       const c2 = cornerMap.get(w.corner_end_id)
       if (!c1 || !c2) continue
@@ -171,69 +150,110 @@ export const FloorPlan3D: React.FC<FloorPlan3DProps> = ({ floor }) => {
 
       const ux = (x2 - x1) / wlen
       const uz = (z2 - z1) / wlen
-      const opWidth = Math.max(0.3, op.width / 1000)
-      const opHeight = (op.height || 2100) / 1000
-      const posStart = op.position_along_wall_mm / 1000
       const wallAngle = Math.atan2(z2 - z1, x2 - x1)
+      const thk = Math.max(0.08, w.thickness / 1000)
+      const wallH = (w.height || 2800) / 1000
+      const wallMat = w.wall_type === 'exterior' ? extMat : intMat
 
-      if (op.type === 'window') {
-        const posCenter = posStart + opWidth / 2
-        const thk = Math.max(0.14, w.thickness / 1000 + 0.04)
-        const geo = new THREE.BoxGeometry(opWidth, opHeight * 0.6, thk)
-        const mesh = new THREE.Mesh(geo, winMat)
-        mesh.position.set(x1 + ux * posCenter, opHeight * 0.65, z1 + uz * posCenter)
+      const wallOps = [...(openingsByWall.get(w.id) || [])].sort(
+        (a, b) => a.position_along_wall_mm - b.position_along_wall_mm,
+      )
+
+      let cursor = 0
+      for (const op of wallOps) {
+        const opWidth = Math.min(wlen - 0.05, Math.max(0.3, op.width / 1000))
+        const opStart = Math.max(cursor, Math.min(wlen - opWidth, op.position_along_wall_mm / 1000))
+        const opEnd = Math.min(wlen, opStart + opWidth)
+        const opHeight = Math.min(wallH - 0.1, (op.height || 2100) / 1000)
+
+        // Solid wall segment before this opening
+        const segLen = opStart - cursor
+        if (segLen > 0.04) {
+          const mid = cursor + segLen / 2
+          const geo = new THREE.BoxGeometry(segLen, wallH, thk)
+          const mesh = new THREE.Mesh(geo, wallMat)
+          mesh.position.set(x1 + ux * mid, wallH / 2, z1 + uz * mid)
+          mesh.rotation.y = -wallAngle
+          scene.add(mesh)
+        }
+
+        // Lintel above opening
+        const lintelH = wallH - opHeight
+        if (lintelH > 0.05) {
+          const opMid = opStart + (opEnd - opStart) / 2
+          const lintelGeo = new THREE.BoxGeometry(opEnd - opStart, lintelH, thk)
+          const lintel = new THREE.Mesh(lintelGeo, wallMat)
+          lintel.position.set(x1 + ux * opMid, opHeight + lintelH / 2, z1 + uz * opMid)
+          lintel.rotation.y = -wallAngle
+          scene.add(lintel)
+        }
+
+        if (op.type === 'window') {
+          const opMid = opStart + (opEnd - opStart) / 2
+          const winGeo = new THREE.BoxGeometry(opEnd - opStart, opHeight * 0.6, thk * 0.6)
+          const winMesh = new THREE.Mesh(winGeo, winMat)
+          winMesh.position.set(x1 + ux * opMid, opHeight * 0.65, z1 + uz * opMid)
+          winMesh.rotation.y = -wallAngle
+          scene.add(winMesh)
+        } else {
+          // Door threshold
+          const actualW = opEnd - opStart
+          const opMid = opStart + actualW / 2
+          const threshGeo = new THREE.BoxGeometry(actualW, 0.03, thk + 0.02)
+          const thresh = new THREE.Mesh(threshGeo, frameMat)
+          thresh.position.set(x1 + ux * opMid, 0.015, z1 + uz * opMid)
+          thresh.rotation.y = -wallAngle
+          scene.add(thresh)
+
+          // Hinged pivot centered cleanly at (opStart, 0) so door rotates around hinge edge
+          const pivot = new THREE.Group()
+          pivot.position.set(x1 + ux * opStart, 0, z1 + uz * opStart)
+          const baseRotY = -wallAngle
+          pivot.rotation.y = baseRotY
+
+          const leafMat = new THREE.MeshStandardMaterial({
+            color: 0xe11d48,
+            roughness: 0.45,
+          })
+          const leafGeo = new THREE.BoxGeometry(actualW, opHeight, 0.05)
+          const leaf = new THREE.Mesh(leafGeo, leafMat)
+          leaf.position.set(actualW / 2, opHeight / 2, 0)
+
+          const handleGeo = new THREE.BoxGeometry(0.11, 0.04, 0.12)
+          const handle = new THREE.Mesh(handleGeo, handleMat)
+          handle.position.set(actualW - 0.12, 1.0, 0)
+
+          const control: DoorControl = {
+            id: op.id,
+            pivot,
+            baseRotY,
+            isOpen: false,
+            leafMat,
+          }
+          leaf.userData = { doorControl: control }
+          handle.userData = { doorControl: control }
+
+          pivot.add(leaf)
+          pivot.add(handle)
+          scene.add(pivot)
+
+          clickableMeshes.push(leaf, handle)
+          doorControls.push(control)
+        }
+
+        cursor = opEnd
+      }
+
+      // Trailing solid wall segment
+      const tailLen = wlen - cursor
+      if (tailLen > 0.04) {
+        const mid = cursor + tailLen / 2
+        const geo = new THREE.BoxGeometry(tailLen, wallH, thk)
+        const mesh = new THREE.Mesh(geo, wallMat)
+        mesh.position.set(x1 + ux * mid, wallH / 2, z1 + uz * mid)
         mesh.rotation.y = -wallAngle
         scene.add(mesh)
-        continue
       }
-
-      // Door threshold / jamb indicator
-      const wallThk = Math.max(0.14, w.thickness / 1000 + 0.05)
-      const threshGeo = new THREE.BoxGeometry(opWidth, 0.06, wallThk)
-      const thresh = new THREE.Mesh(threshGeo, frameMat)
-      thresh.position.set(
-        x1 + ux * (posStart + opWidth / 2),
-        0.03,
-        z1 + uz * (posStart + opWidth / 2),
-      )
-      thresh.rotation.y = -wallAngle
-      scene.add(thresh)
-
-      // Hinged door pivot at hinge corner
-      const pivot = new THREE.Group()
-      pivot.position.set(x1 + ux * posStart, 0, z1 + uz * posStart)
-      const baseRotY = -wallAngle
-      pivot.rotation.y = baseRotY
-
-      const leafMat = new THREE.MeshStandardMaterial({
-        color: 0xe11d48,
-        roughness: 0.45,
-      })
-      const leafGeo = new THREE.BoxGeometry(opWidth, opHeight, 0.06)
-      const leaf = new THREE.Mesh(leafGeo, leafMat)
-      leaf.position.set(opWidth / 2, opHeight / 2, wallThk * 0.45)
-
-      // Metallic door handle on latch side
-      const handleGeo = new THREE.BoxGeometry(0.12, 0.04, 0.14)
-      const handle = new THREE.Mesh(handleGeo, handleMat)
-      handle.position.set(opWidth - 0.14, 1.0, wallThk * 0.45)
-
-      const control: DoorControl = {
-        id: op.id,
-        pivot,
-        baseRotY,
-        isOpen: false,
-        leafMat,
-      }
-      leaf.userData = { doorControl: control }
-      handle.userData = { doorControl: control }
-
-      pivot.add(leaf)
-      pivot.add(handle)
-      scene.add(pivot)
-
-      clickableMeshes.push(leaf, handle)
-      doorControls.push(control)
     }
 
     doorsRef.current = doorControls
@@ -256,7 +276,6 @@ export const FloorPlan3D: React.FC<FloorPlan3DProps> = ({ floor }) => {
     cameraApiRef.current = { setPreset: applyPreset }
     applyPreset(preset)
 
-    // Raycasting for clicking & hovering doors
     const raycaster = new THREE.Raycaster()
     const pointerNdc = new THREE.Vector2()
     let downPos = { x: 0, y: 0 }

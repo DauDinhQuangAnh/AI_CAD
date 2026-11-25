@@ -30,6 +30,7 @@ class VectorSegment:
     width: float = 0.24
     color: tuple[float, float, float] = (0.0, 0.0, 0.0)
     is_dashed: bool = False
+    is_curve: bool = False
 
     @property
     def length(self) -> float:
@@ -237,6 +238,7 @@ class PDFExtractor:
                             width=width,
                             color=color,
                             is_dashed=is_dashed,
+                            is_curve=True,
                         )
                         if seg.length >= self.min_segment_length_pt:
                             segments.append(seg)
