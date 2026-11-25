@@ -234,10 +234,10 @@ export const FloorPlan2D: React.FC<FloorPlan2DProps> = ({
       </div>
 
       {/* Bottom Scale Bar */}
-      <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex items-center gap-2 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-sm backdrop-blur">
+      <div className="pointer-events-none absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-1.5rem)] items-center gap-2 truncate rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-sm backdrop-blur">
         <span>1000 mm = 1 m</span>
         <span className="h-3 w-px bg-slate-200" />
-        <span>Drag to pan · Scroll to zoom</span>
+        <span>Kéo pan · Cuộn zoom</span>
       </div>
 
       <svg
@@ -353,7 +353,7 @@ export const FloorPlan2D: React.FC<FloorPlan2DProps> = ({
           )
         })}
 
-        {/* Openings */}
+        {/* Openings (Architectural Door Leaf + 90-deg Swing Arc) */}
         {showDoors &&
           floor.openings.map((op: Opening) => {
             const w = wallMap.get(op.wall_id)
@@ -367,21 +367,44 @@ export const FloorPlan2D: React.FC<FloorPlan2DProps> = ({
             if (len < 1) return null
             const ux = dx / len
             const uy = dy / len
+            const nx = -uy
+            const ny = ux
             const sx = c1.x + ux * op.position_along_wall_mm
             const sy = toSvgY(c1.y) + uy * op.position_along_wall_mm
             const ex = sx + ux * op.width
             const ey = sy + uy * op.width
+            const lx = sx + nx * op.width
+            const ly = sy + ny * op.width
             return (
-              <line
-                key={op.id}
-                x1={sx}
-                y1={sy}
-                x2={ex}
-                y2={ey}
-                stroke="#e11d48"
-                strokeWidth={90}
-                strokeLinecap="round"
-              />
+              <g key={op.id}>
+                {/* Clear wall gap */}
+                <line
+                  x1={sx}
+                  y1={sy}
+                  x2={ex}
+                  y2={ey}
+                  stroke="#ffffff"
+                  strokeWidth={Math.max(80, w.thickness + 20)}
+                />
+                {/* Door leaf */}
+                <line
+                  x1={sx}
+                  y1={sy}
+                  x2={lx}
+                  y2={ly}
+                  stroke="#e11d48"
+                  strokeWidth={55}
+                  strokeLinecap="round"
+                />
+                {/* 90-deg swing arc */}
+                <path
+                  d={`M ${ex} ${ey} A ${op.width} ${op.width} 0 0 1 ${lx} ${ly}`}
+                  fill="none"
+                  stroke="#fb7185"
+                  strokeWidth={22}
+                  strokeDasharray="60 40"
+                />
+              </g>
             )
           })}
 

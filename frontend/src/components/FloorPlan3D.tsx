@@ -260,17 +260,20 @@ export const FloorPlan3D: React.FC<FloorPlan3DProps> = ({ floor }) => {
     setOpenCount(0)
 
     const applyPreset = (p: CameraPreset) => {
+      const prevDamp = controls.enableDamping
+      controls.enableDamping = false
       if (p === 'top') {
-        camera.position.set(0, maxSpan * 1.55, 0.01)
+        camera.position.set(0, maxSpan * 1.9, 0.01)
         controls.target.set(0, 0, 0)
       } else if (p === 'front') {
-        camera.position.set(0, maxSpan * 0.45, maxSpan * 1.45)
+        camera.position.set(0, maxSpan * 0.55, maxSpan * 1.8)
         controls.target.set(0, 1.0, 0)
       } else {
-        camera.position.set(maxSpan * 0.65, maxSpan * 1.15, maxSpan * 1.15)
+        camera.position.set(maxSpan * 0.85, maxSpan * 1.5, maxSpan * 1.5)
         controls.target.set(0, 0.8, 0)
       }
       controls.update()
+      controls.enableDamping = prevDamp
     }
 
     cameraApiRef.current = { setPreset: applyPreset }
@@ -330,20 +333,25 @@ export const FloorPlan3D: React.FC<FloorPlan3DProps> = ({ floor }) => {
     }
     animate()
 
+    let resizeRaf = 0
     const observer = new ResizeObserver(() => {
-      if (!el) return
-      const nw = el.clientWidth
-      const nh = el.clientHeight
-      if (nw > 0 && nh > 0) {
-        camera.aspect = nw / nh
-        camera.updateProjectionMatrix()
-        renderer.setSize(nw, nh)
-      }
+      cancelAnimationFrame(resizeRaf)
+      resizeRaf = requestAnimationFrame(() => {
+        if (!el) return
+        const nw = el.clientWidth
+        const nh = el.clientHeight
+        if (nw > 0 && nh > 0) {
+          camera.aspect = nw / nh
+          camera.updateProjectionMatrix()
+          renderer.setSize(nw, nh)
+        }
+      })
     })
     observer.observe(el)
 
     return () => {
       cancelAnimationFrame(animId)
+      cancelAnimationFrame(resizeRaf)
       observer.disconnect()
       renderer.domElement.removeEventListener('pointerdown', onPointerDown)
       renderer.domElement.removeEventListener('pointermove', onPointerMove)
@@ -410,8 +418,8 @@ export const FloorPlan3D: React.FC<FloorPlan3DProps> = ({ floor }) => {
         )}
       </div>
 
-      <div className="pointer-events-none absolute bottom-3 left-3 z-10 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-sm backdrop-blur">
-        Click trực tiếp vào cánh cửa đỏ/xanh để đóng mở 90° · Kéo để xoay
+      <div className="pointer-events-none absolute bottom-3 left-3 z-10 max-w-[calc(100%-1.5rem)] truncate rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1 text-[11px] font-medium text-slate-600 shadow-sm backdrop-blur">
+        Click cửa để đóng/mở 90° · Kéo để xoay
       </div>
 
       <div

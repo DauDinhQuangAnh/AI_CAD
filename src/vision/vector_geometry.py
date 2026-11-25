@@ -87,6 +87,7 @@ class VectorGeometryParser:
         walls = self._extract_parallel_walls(merged)
         walls = self._deduplicate_walls(walls)
         walls = self._filter_stair_treads(walls)
+        walls = self._remove_isolated_stray_walls(walls)
         openings = self._detect_openings(scaled_all, walls)
 
         logger.info(
@@ -316,6 +317,64 @@ class VectorGeometryParser:
         if to_remove:
             logger.info("Filtered %d stair-tread false wall segments", len(to_remove))
         return [w for idx, w in enumerate(walls) if idx not in to_remove]
+
+    @staticmethod
+    def _remove_isolated_stray_walls(
+        walls: list[RawWallSegment],
+        connect_tol_mm: float = 450.0,
+    ) -> list[RawWallSegment]:
+        """Remove tiny disconnected wall islands (e.g. title/belending boxes) outside main structure."""
+        if len(walls) < 6:
+            return walls
+
+        n = len(walls)
+        adj: list[list[int]] = [[] for _ in range(n)]
+        for i in range(n):
+            wi = walls[i]
+            pts_i = ((wi.start.x, wi.start.y), (wi.end.x, wi.end.y))
+            for j in range(i + 1, n):
+                wj = walls[j]
+                pts_j = ((wj.start.x, wj.start.y), (wj.end.x, wj.end.y))
+                if any(
+                    math.hypot(ax - bx, ay - by) <= connect_tol_mm
+                    for ax, ay in pts_i
+                    for bx, by in pts_j
+                ):
+                    adj[i].append(j)
+                    adj[j].append(i)
+
+        visited = [False] * n
+        components: list[list[int]] = []
+        for i in range(n):
+            if visited[i]:
+                continue
+            comp: list[int] = []
+            stack = [i]
+            visited[i] = True
+            while stack:
+                cur = stack.pop()
+                comp.append(cur)
+                for nb in adj[cur]:
+                    if not visited[nb]:
+                        visited[nb] = True
+                        stack.append(nb)
+            components.append(comp)
+
+        if len(components) <= 1:
+            return walls
+
+        kept_indices: set[int] = set()
+        for comp in components:
+            total_len = sum(walls[idx].length_mm for idx in comp)
+            if len(comp) >= 3 or total_len >= 3500.0:
+                kept_indices.update(comp)
+
+        if not kept_indices:
+            return walls
+        removed = n - len(kept_indices)
+        if removed:
+            logger.info("Removed %d isolated stray wall segments", removed)
+        return [w for idx, w in enumerate(walls) if idx in kept_indices]
 
     def _detect_openings(
         self,
