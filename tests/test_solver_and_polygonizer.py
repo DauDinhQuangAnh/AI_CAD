@@ -1,8 +1,10 @@
 """Unit tests for ScaleCalibrator, OrthogonalSnapSolver, and RoomPolygonizer."""
 
 from src.core.room_polygonizer import RoomPolygonizer
-from src.core.schema import Dimension, Point2D
-from src.llm.heuristic_parser import PositionedRoomHint
+from src.core.schema import Dimension, Point2D, Space
+from src.llm.base import LLMExtractedRoom, LLMSemanticResult
+from src.llm.heuristic_parser import PositionedRoomHint, RegionSemanticData
+from src.pipeline import assign_unmatched_rooms_by_area, reconcile_semantics
 from src.preprocessor.pdf_extractor import VectorSegment
 from src.solver.orthogonal_snap import OrthogonalSnapSolver
 from src.solver.scale_calibrator import MM_PER_PT, ScaleCalibrator
@@ -94,3 +96,95 @@ def test_orthogonal_snap_preserves_intentional_slanted_wall():
     w = solved.walls[0]
     dy = abs(c_map[w.corner_end_id].y - c_map[w.corner_start_id].y)
     assert dy > 900.0
+
+
+def test_reconcile_semantics_and_area_matching():
+    sem = RegionSemanticData(
+        rooms=[
+            PositionedRoomHint(
+                name="kantoor",
+                name_vn=None,
+                category="other",
+                nominal_area_m2=None,
+                center=Point2D(x=100, y=100),
+            )
+        ],
+        dimensions=[],
+        elevation_peil_mm=None,
+    )
+    llm_res = LLMSemanticResult(
+        floor_name="Begane grond",
+        elevation_peil_mm=-50.0,
+        rooms=[
+            LLMExtractedRoom(
+                name="kantoor",
+                name_vn="Văn phòng",
+                category="commercial",
+                nominal_area_m2=18.5,
+            ),
+            LLMExtractedRoom(
+                name="berging",
+                name_vn="Kho",
+                category="utility",
+                nominal_area_m2=4.2,
+            ),
+        ],
+    )
+    floor_name, extra = reconcile_semantics(sem, llm_res, "Floor 1", Point2D(x=50, y=50))
+    assert floor_name == "Begane grond"
+    assert sem.elevation_peil_mm == -50.0
+    assert sem.rooms[0].name_vn == "Văn phòng"
+    assert sem.rooms[0].category == "commercial"
+    assert sem.rooms[0].nominal_area_m2 == 18.5
+    assert len(extra) == 1
+
+    spaces = [Space(id="s2", name="Room 2", calculated_area_m2=4.3)]
+    assign_unmatched_rooms_by_area(spaces, extra)
+    assert spaces[0].name == "berging"
+    assert spaces[0].name_vn == "Kho"
+
+
+def test_reconcile_semantics_and_area_matching():
+    sem = RegionSemanticData(
+        rooms=[
+            PositionedRoomHint(
+                name="kantoor",
+                name_vn=None,
+                category="other",
+                nominal_area_m2=None,
+                center=Point2D(x=100, y=100),
+            )
+        ],
+        dimensions=[],
+        elevation_peil_mm=None,
+    )
+    llm_res = LLMSemanticResult(
+        floor_name="Begane grond",
+        elevation_peil_mm=-50.0,
+        rooms=[
+            LLMExtractedRoom(
+                name="kantoor",
+                name_vn="Văn phòng",
+                category="commercial",
+                nominal_area_m2=18.5,
+            ),
+            LLMExtractedRoom(
+                name="berging",
+                name_vn="Kho",
+                category="utility",
+                nominal_area_m2=4.2,
+            ),
+        ],
+    )
+    floor_name, extra = reconcile_semantics(sem, llm_res, "Floor 1", Point2D(x=50, y=50))
+    assert floor_name == "Begane grond"
+    assert sem.elevation_peil_mm == -50.0
+    assert sem.rooms[0].name_vn == "Văn phòng"
+    assert sem.rooms[0].category == "commercial"
+    assert sem.rooms[0].nominal_area_m2 == 18.5
+    assert len(extra) == 1
+
+    spaces = [Space(id="s2", name="Room 2", calculated_area_m2=4.3)]
+    assign_unmatched_rooms_by_area(spaces, extra)
+    assert spaces[0].name == "berging"
+    assert spaces[0].name_vn == "Kho"
